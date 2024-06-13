@@ -12,6 +12,7 @@ import { MultiCarIndex, StreamingCarIndex } from './lib/dag-index/car.js'
 import { CachingBucket, asSimpleBucket } from './lib/bucket.js'
 import { MAX_CAR_BYTES_IN_MEMORY, CAR_CODE } from './constants.js'
 import { handleCarBlock } from './handlers/car-block.js'
+import { RateLimitExceeded } from './bindings.js'
 
 /**
  * @typedef {import('./bindings.js').Environment} Environment
@@ -21,6 +22,56 @@ import { handleCarBlock } from './handlers/car-block.js'
  * @typedef {import('@web3-storage/gateway-lib').DagContext} DagContext
  * @typedef {import('@web3-storage/gateway-lib').UnixfsContext} UnixfsContext
  */
+
+
+/**
+ * @type {import('./bindings.js').RateLimits}
+ */
+const RateLimits = {
+  create: ({ serviceURL }) => ({
+    check: async (cid, options) => {
+      console.log(`checking ${serviceURL} to see if rate limits are exceeded for ${cid} with options`, options)
+      return RateLimitExceeded.MAYBE
+    }
+  })
+}
+
+/**
+ * @type {import('./bindings.js').Accounting}
+ */
+const Accounting = {
+  create: ({ serviceURL }) => ({
+    record: async (cid, options) => {
+      console.log(`using ${serviceURL} to record a GET for ${cid} with options`, options)
+    }
+  })
+}
+
+/**
+ * 
+ * @type {import('@web3-storage/gateway-lib').Middleware<IpfsUrlContext, IpfsUrlContext, Environment>}
+ */
+export function withRateLimits(handler) {
+  return async (request, env, ctx) => {
+    const { dataCid } = ctx
+    const rateLimits = RateLimits.create({
+      serviceURL: env.RATE_LIMITS_SERVICE_URL ? new URL(env.RATE_LIMITS_SERVICE_URL) : undefined
+    })
+    const isRateLimitExceeded = await rateLimits.check(dataCid, request)
+    if (isRateLimitExceeded === RateLimitExceeded.YES) {
+      // TODO should we record this?
+      throw new HttpError('Too Many Requests', { status: 429 })
+    } else {
+      const accounting = Accounting.create({
+        serviceURL: env.ACCOUNTING_SERVICE_URL ? new URL(env.ACCOUNTING_SERVICE_URL) : undefined
+      })
+      // ignore the response from the accounting service - this is "fire and forget"
+      void accounting.record(dataCid, request)
+      return handler(request, env, ctx)
+    }
+  }
+}
+
 
 /**
  * Validates the request does not contain a HTTP `Range` header.

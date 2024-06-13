@@ -3,6 +3,7 @@ import type { Context } from '@web3-storage/gateway-lib'
 import type { CARLink } from 'cardex/api'
 import type { R2Bucket, KVNamespace } from '@cloudflare/workers-types'
 import type { MemoryBudget } from './lib/mem-budget'
+import { CID } from '@web3-storage/gateway-lib/handlers'
 
 export {}
 
@@ -13,6 +14,8 @@ export interface Environment {
   SATNAV: R2Bucket
   MAX_SHARDS: string
   CONTENT_CLAIMS_SERVICE_URL?: string
+  RATE_LIMITS_SERVICE_URL?: string
+  ACCOUNTING_SERVICE_URL: string
 }
 
 /**
@@ -45,3 +48,30 @@ export interface IndexSource {
 export interface IndexSourcesContext extends Context {
   indexSources: IndexSource[]
 }
+
+export type GetCIDRequestData = Pick<Request, 'url' | 'headers'>
+
+export type GetCIDRequestOptions = GetCIDRequestData
+
+export enum RateLimitExceeded {
+  YES,
+  NO,
+  MAYBE
+}
+
+export interface RateLimitsService {
+  check: (cid: CID, options: GetCIDRequestOptions) => Promise<RateLimitExceeded>
+}
+
+export interface RateLimits {
+  create: ({ serviceURL }: { serviceURL?: URL }) => RateLimitsService
+}
+
+export interface AccountingService {
+  record: (cid: CID, options: GetCIDRequestOptions) => Promise<void>
+}
+
+export interface Accounting {
+  create: ({ serviceURL }: { serviceURL?: URL }) => AccountingService
+}
+
